@@ -1,0 +1,443 @@
+%change this ----------------------
+load('Lab_04_staircase_empty.mat') 
+data_size = length(Data);
+ts = 1/fsamp;
+%----------------------------------
+
+%change this ----------------------
+input = Data(:,1)/sens; %input
+output = Data(:,2)/sens; %17 sensor
+sens = 1;
+%----------------------------------
+
+t_tot = data_size*ts;
+t = linspace(0, t_tot, data_size);
+
+hold on
+
+figure(1)
+subplot(2,1,1)
+plot(t, input)
+xlabel('time [s]')
+ylabel('Acceleration [m^2/s]')
+grid on 
+title('Input')
+
+subplot(2,1,2)
+plot(t, output)
+xlabel('time [s]')
+ylabel('Acceleration [m^2/s]')
+grid on 
+title('Output sensor 17')
+
+
+%Change this ------------------------
+time_histories_duration = 15; %s
+overlap = 0.66; % in decimal ,not in percentage
+%------------------------
+
+SecPoints = round(time_histories_duration*fsamp);
+N_OL = floor(overlap*(SecPoints));
+
+w = hanning(SecPoints, 'periodic');
+
+[Gxx, freq] = autocross(input,input,fsamp,SecPoints,N_OL, w);
+[Gyy] = autocross(output,output,fsamp,SecPoints,N_OL, w);
+[Gxy] = autocross(input,output,fsamp,SecPoints,N_OL, w);
+[Gyx] = autocross(output,input,fsamp,SecPoints,N_OL, w);
+
+coherence = abs(Gxy).^2./(Gxx.*Gyy);
+
+%% H1 ed H2
+
+H1 = Gxy./Gxx;
+H2 = Gyy./Gyx;
+
+
+%Power spectrums
+
+figure (2)
+        
+       
+semilogy(freq,Gxx)
+xlabel('Frequency [Hz]')
+ylabel('Gxx [N^2]')
+title(['Power spectrum of the input'])
+grid on
+axis tight
+
+
+figure (3)
+
+semilogy(freq,Gyy)
+xlabel('Frequency [Hz]')
+ylabel('Gyy [(m/s^2)^2')
+title(['Output Power spectrum'])
+grid on
+axis tight
+
+%Cross-spectrum
+
+figure (4)
+
+ax1=subplot(2,1,1);
+semilogy(freq,abs(Gxy))
+    
+xlabel('Frequency [Hz]')
+ylabel('|Gxy| [(m/s^2)N]')
+title(['Cross-spectrum: Magnitude'])
+grid on
+axis tight
+
+
+ax2=subplot(2,1,2);
+plot(freq,angle(Gxy))
+hold on
+xlabel('Frequency [Hz]')
+ylabel('\angle(Gxy) [rad]')
+title(['Cross-spectrum: Phase'])
+grid on
+axis tight
+linkaxes([ax1 ax2],'x');
+
+%coherence
+
+figure(5)
+
+plot(freq,coherence);
+
+ylabel('\gamma^2_x_y');
+xlabel('f [Hz]')
+title('Coherence')
+grid on
+axis tight
+
+%H1 and H2
+
+figure (10)
+ax1=subplot(2,1,1);
+semilogy(freq,abs(H1))
+hold on
+semilogy(freq,abs(H2))
+ylabel('|H| [m/(s^2*N)]')
+yyaxis right
+plot(freq,coherence,'k');
+ylabel('\gamma^2_x_y')
+set(gca,'fontsize',10)
+set(gca,'YColor','Black')
+%title(['Input: H_1 and H_2 - ' num2str(Time) 's'])
+xlabel('Frequency [Hz]')
+axis tight
+grid on
+legend('H1','H2','\gamma^2_x_y')
+ax2=subplot(2,1,2);
+plot(freq,angle(H1))
+hold on
+plot(freq,angle(H2))
+set(gca,'fontsize',10)
+xlabel('Frequency [Hz]')
+ylabel('\phi [rad]')
+axis tight
+grid on
+legend('H1','H2')
+linkaxes([ax1 ax2],'x');
+
+
+figure (11)
+semilogy(freq,abs(H1),'b')
+hold on
+semilogy(freq,abs(H2),'r')
+
+
+figure (12)
+plot(freq,coherence,'k');
+hold on
+
+
+figure (13)
+plot(freq,angle(H1))
+hold on
+plot(freq,angle(H2))
+
+
+
+
+%NATURAL FREQUENCIES (H1 must be a FRF relating force input and displacement)
+
+%Considering H1
+
+%maximun peak --------------------
+f_min = 7; %change
+f_max = 8.2; %change
+%---------------------------------
+
+%[peaks_H1, locs_H1] = findpeaks(abs(H1), freq, 'MinPeakProminence', 1e-4); %adjust the final value
+f_real = eig_freq_real(H1, freq, f_min, f_max)
+f_imag = eig_freq_imag(H1, freq, f_min, f_max)
+[~, f_max_peak] = max_peak(H1, freq, f_min, f_max)
+
+%DAMPING
+
+zet_pp = peak_picking(H1, freq, f_min, f_max)
+
+zet_slope = phase_slope(H1, freq, f_min, f_max, f_max_peak)
+
+
+
+
+
+%functions to use 
+
+function [power_cross,freq] = powcross(Data1, Data2, window_data,fsamp)
+%Data1 and Data2 are matrixes containing already divided time histories
+%were each column is a time history, each row reprsents the frequency .
+%They HAVE TO be the same size (it makes no sense otherwise)
+
+N = size(Data1,1); %points on the frequencies
+nd = size(Data1,2); %number of time histories
+
+df=fsamp/N; % The frequency resolution is due to the number of points of the window
+
+if (N/2)==(floor(N/2))
+    freq=0:df:(N/2*df);
+else
+    freq=0:df:((N-1)/2)*df;
+end
+pos_N = length(freq);
+
+power_cross = zeros(N,nd);
+
+for ii=1: nd
+    data1(:,ii) = fft(Data1(:,ii) .*window_data)/N;
+    data2(:,ii) = fft(Data2(:,ii) .*window_data)/N;
+    power_cross(:,ii) = conj(data1(:,ii)).* data2(:,ii);
+end
+
+power_cross_pos = power_cross(1:pos_N,:);
+
+if (N/2)==(floor(N/2)) % I compensate for the module since I represent only the positive frequencies
+    power_cross_pos(2:end-1,:) = power_cross_pos(2:end-1,:)*2;
+else
+    power_cross_pos(2:end,:) = power_cross_pos(2:end,:)*2;
+end
+
+
+power_cross = mean(power_cross_pos,2);
+
+end
+
+function data_divided = time_hist(Data, time_duration, fsamp)
+%Data is the complete time 
+%time_duration are the intervals at which we segment
+
+%this function returns a matrix with the whole time history separated in
+%segments. each column is a time history, each row reprsents the frequency 
+
+data_size = length(Data);
+ts = 1/fsamp;
+t_tot = data_size*ts;
+section_breaks = floor(t_tot/time_duration);
+size_group = floor(data_size/section_breaks);
+rem = mod(data_size, section_breaks);
+
+%trim the signals 
+if rem ~= 0
+    Data = Data(1:end-rem);
+end
+
+data_divided = reshape(Data, size_group, []);
+
+end
+
+%---------------------------------------------------------------------------------
+
+%% Auto / cross average spectrum
+%
+% [Output, mediacomp, frequencies] = autocross (data1, data2, fsamp,N_win,N_OL,Win)
+%
+% data1, data2: time histories input
+% fsamp: sampling frequency
+% N_win: number of points in each subrecords that it has been used to divide the time history
+% N_OL: number of points of overlap between two consequent subrecords
+% Win: time window used to weight the data
+
+function [autocross_mean,frequencies]=autocross(data1,data2,fsamp,N_win,N_OL,Win)
+
+
+N=length(data1); % Number of points of the data (data1 and data2 must have the same size)
+df=fsamp/N_win; % The frequency resolution is due to the number of points of the window
+
+
+if (N_win/2)==(floor(N_win/2))
+    frequencies=0:df:(N_win/2*df);
+else
+    frequencies=0:df:((N_win-1)/2)*df;
+end
+
+NF=length(frequencies);
+
+num_records=fix((N-N_OL)/(N_win-N_OL));
+
+autocross=zeros(NF,num_records);
+
+counter=1;
+finalPoint_nextIT=0; % Index of the final point at next iteration (initialized at 0)
+
+while finalPoint_nextIT <= N
+
+    start_p=(counter-1)*(N_win-N_OL)+1;
+
+    finish_p=start_p+(N_win-1);
+
+
+    sp1=fft(Win.*data1(start_p:finish_p));
+    sp1=sp1./N_win;
+
+    sp2=fft(Win.*data2(start_p:finish_p));
+    sp2=sp2./N_win;
+
+    autocross(:,counter)=conj(sp1(1:NF)).*sp2(1:NF); % I'm saving the result only for the positive frequency WITHOUT COMPENSATING FOR THE MODULE AT THIS STAGE
+
+    counter=counter+1;
+
+    finalPoint_nextIT=finish_p+N_win-N_OL;
+
+end
+
+if (N_win/2)==(floor(N_win/2)) % I compensate for the module since I represent only the positive frequencies
+    autocross(2:end-1,:)=autocross(2:end-1,:)*2;
+else
+    autocross(2:end,:)=autocross(2:end,:)*2;
+end
+
+
+autocross_mean=mean(autocross(1:NF,:),2);
+end
+%%
+%% This function does the normalisation of the output of the fft function
+% Input:
+%   - data: input data matrix with size [r,c], with r samples and c signals
+%   - fsamp: sampling frequency
+% Output:
+%   - norm_sp: normalized spectrum (positive frequencies)
+%   - freq_vec: frequency vector
+
+function [norm_sp, freq_vec]=fft_n(data,fsamp)
+
+dim=size(data);
+
+if dim(2)>dim(1)
+    data=data';
+end
+
+N=length(data);
+df=fsamp/N;
+
+if (N/2)==(floor(N/2))
+
+    freq_vec=[0:df:(N/2*df)]';
+    NF=length(freq_vec);
+    sp=fft(data,[],1);
+    norm_sp(1,:)=sp(1,:)/N;
+    norm_sp(2:N/2,:)=sp(2:N/2,:)/(N/2);
+    norm_sp(N/2+1,:)=sp(N/2+1,:)/N;
+
+else
+
+    freq_vec=[0:df:((N-1)/2)*df]';
+    NF=length(freq_vec);
+    sp=fft(data,[],1);
+    norm_sp(1,:)=sp(1,:)/N;
+    norm_sp(2:(N+1)/2,:)=sp(2:(N+1)/2,:)/(N/2);
+
+end
+
+end
+
+
+function [eig_max_peak, res_freq] = max_peak(FRF, freq,f_min, f_max)
+[~, f_min_idx] = min(abs(freq - f_min));
+[~, f_max_idx] = min(abs(freq - f_max));
+
+
+FRF2 = FRF(f_min_idx:f_max_idx);
+
+[eig_max_peak, index_peak] = max(abs(FRF2)); 
+res_freq = freq(f_min_idx + index_peak-1);
+end
+
+function eig_freq = eig_freq_real(FRF, freq, f_min, f_max)
+
+%FRF is the estimator, is a vector
+%freq is the vector of frequencies that accompany FRF
+
+[~, f_min_idx] = min(abs(freq - f_min));
+[~, f_max_idx] = min(abs(freq - f_max));
+
+FRF_real = real(FRF);
+
+
+FRF2 = FRF_real(f_min_idx:f_max_idx);
+% Find zero crossings
+idx = find(FRF2(1:end-1) .* FRF2(2:end) < 0);
+% Linear interpolation for each crossing
+%eig_freq = freq(idx) - FRF(idx) .* (freq(idx+1) - freq(idx)) ./ (FRF(idx+1) - FRF(idx));
+eig_freq = freq(f_min_idx + idx);
+
+end
+
+function eig_freq = eig_freq_imag(FRF, freq, f_min, f_max)
+FRF2 = imag(FRF);
+[~, f_min_idx] = min(abs(freq - f_min));
+[~, f_max_idx] = min(abs(freq - f_max));
+FRF3 = FRF2(f_min_idx:f_max_idx);
+[~,eig_freq_idx] = max(abs(FRF3));
+eig_freq = freq(f_min_idx + eig_freq_idx-1);
+end
+
+function damping_ratio = peak_picking(FRF, freq, f_min, f_max)
+
+[~, f_min_idx] = min(abs(freq - f_min));
+[~, f_max_idx] = min(abs(freq - f_max));
+
+FRF = FRF(f_min_idx:f_max_idx);
+freq = freq(f_min_idx:f_max_idx);
+
+mag = abs(FRF);
+[peak_mag, idx_peak] = max(mag);
+threshold = peak_mag / sqrt(2);  % The 70.7% point
+
+% Find w1 (before the peak)
+idx_w1 = find(mag(1:idx_peak) <= threshold, 1, 'last');
+
+% Find w2 (after the peak)
+idx_w2 = idx_peak - 1 + find(mag(idx_peak:end) <= threshold, 1, 'first');
+
+omega = 2*pi*freq;  % rad/s
+omega_1 = omega(idx_w1);
+omega_2 = omega(idx_w2);
+omega_n = omega(idx_peak);
+
+damping_ratio = (omega_2^2 - omega_1^2) / (4 * omega_n^2);
+
+
+end
+
+function damping_ratio = phase_slope(FRF, freq, f_min, f_max, eig_freq)
+% Estimate damping ratio using phase slope method
+
+% Find indices of f_min, f_max, eig_freq (all given in Hz)
+[~, f_min_idx] = min(abs(freq - f_min));
+[~, f_max_idx] = min(abs(freq - f_max));
+[~, eig_freq_idx] = min(abs(freq - eig_freq));
+
+FRF_segment = FRF(f_min_idx:f_max_idx);
+freq_segment = freq(f_min_idx:f_max_idx);
+
+omega = 2 * pi * freq_segment;
+phi = unwrap(angle(FRF_segment));
+dphi_domega = gradient(phi, omega);
+eig_freq_rad = 2 * pi * eig_freq;
+eig_freq_idx_segment = eig_freq_idx - f_min_idx + 1;
+damping_ratio = -1 / (eig_freq_rad * dphi_domega(eig_freq_idx_segment));
+end
